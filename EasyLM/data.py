@@ -25,6 +25,7 @@ class DatasetFactory(object):
         config.text_processor = TextProcessor.get_default_config()
         config.huggingface_dataset = HuggingfaceDataset.get_default_config()
         config.json_dataset = JsonDataset.get_default_config()
+        config.encoded_json_dataset = EncodedJsonDataset.get_default_config()
 
         if updates is not None:
             config.update(ConfigDict(updates).copy_and_resolve_references())
@@ -33,13 +34,16 @@ class DatasetFactory(object):
     @classmethod
     def load_dataset(cls, config, tokenizer, **kwargs):
         config = cls.get_default_config(config)
-        text_processor = TextProcessor(config.text_processor, tokenizer)
         if config.type == 'huggingface':
+            text_processor = TextProcessor(config.text_processor, tokenizer)
             return HuggingfaceDataset(
                 config.huggingface_dataset, tokenizer, text_processor, **kwargs
             )
         elif config.type == 'json':
+            text_processor = TextProcessor(config.text_processor, tokenizer)
             return JsonDataset(config.json_dataset, tokenizer, text_processor, **kwargs)
+        elif config.type == 'encoded-json':
+            return EncodedJsonDataset(config.encoded_json_dataset, tokenizer, **kwargs)
         else:
             raise ValueError(f'Unknown dataset type: {config.type}')
 
@@ -375,6 +379,75 @@ class JsonDataset(object):
     @property
     def text_processor(self):
         return self._text_processor
+
+    @property
+    def vocab_size(self):
+        return len(self.tokenizer)
+
+class EncodedJsonDataset(object):
+    """ JSON dataset, where each line of the data file contains a JSON
+        dictionary with text fields.
+    """
+
+    @staticmethod
+    def get_default_config(updates=None):
+        config = ConfigDict()
+        config.path = ''
+        config.seq_length = 1024
+        config.batch_size = 8
+        config.cache_dir = ''
+
+        if updates is not None:
+            config.update(ConfigDict(updates).copy_and_resolve_references())
+        return config
+
+    def __init__(self, config, tokenizer):
+        self.config = self.get_default_config(config)
+        self.tokenizer = tokenizer
+        assert self.config.path != ''
+
+    def json_iterator(self):
+        dataset = load_dataset(
+            "json",
+            data_files={
+                "train": self.config.path
+            },
+            cache_dir=self.config.cache_dir,
+            split="train"
+        )
+
+        while True:
+            for data in dataset:
+                yield data
+
+    def __iter__(self):
+        batch = []
+        for example in self.json_iterator():
+            batch.append(example["input_ids"])
+            if len(batch) == self.config.batch_size:
+                yield {
+                    'tokens': np.array(batch)
+                }
+                batch = []
+
+    def __getstate__(self):
+        return self.config, self.tokenizer
+
+    def __setstate__(self, state):
+        config, tokenizer = state
+        self.__init__(config, tokenizer)
+
+    @property
+    def seq_length(self):
+        return self.config.seq_length
+
+    # @property
+    # def tokenizer(self):
+    #     return self._tokenizer
+
+    # @property
+    # def text_processor(self):
+    #     return self._text_processor
 
     @property
     def vocab_size(self):

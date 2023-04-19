@@ -113,7 +113,16 @@ def main(argv):
 
     def train_step(train_state, rng, batch):
         rng_generator = JaxRNG(rng)
+<<<<<<< HEAD
         batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
+=======
+        tokens = with_sharding_constraint(batch['tokens'], PS('dp'))
+        if "loss_masks" in batch:
+            loss_masks = with_sharding_constraint(batch['loss_masks'], PS('dp'))
+        else:
+            loss_masks = None
+
+>>>>>>> 사전에 인코딩된 데이터로도 학습하도록 수정
         def loss_and_accuracy(params):
             logits = model.apply(
                 params, batch['input_tokens'], deterministic=False,
